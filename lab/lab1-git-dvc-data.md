@@ -1,241 +1,113 @@
 # Lab 1 - git/dvc and data preparation
 
-Through several labs we will be working on the same project taking it from data preparation to model training tracking registration in mlflow, containerization and CI/CD, Kubernetes, to monitoring and live model update.
+## Remote Solution Adopted
 
-The first lab will be about creating git and dvc repos. seeing how they work together. And preparing the data files.
+I adopted **Option 1: Local remote**. The dvc remote is set to a local folder
+(`../dvc-local-storage`) outside the git repository, rather than pushing to DagsHub.
+This avoided upload speed/size issues while still demonstrating the full git+dvc
+workflow (add, commit, push, pull, checkout).
 
-> What you need to know:
-> - git is for versioning and sharing *code* and *data pointers*
-> - dvc is for versioning the *data* itself
-> - dvc and git live in the same folder
-> - dvc needs git to version the data config file. Developers can use git alone but ML Engineers cannot use dvc alone.
+---
 
-You will need to have a github account and a dagshub account.
+### Question 1: uv init files
 
-> Should you find difficulty pushing this amount of data to dagshub you can proceed with one of these solutions. Please specify the solution you adopted in the lab/lab1.md file you are submitting:
-> 1. *Use a local remote instead of dagshub (recommended):* you can also set the remote of the dvc to a local folder outside the git repo completely. Please do your search to do that.
-> 2. *Reduce the data folder size:* under data folder push the same structure of data but with very few files. The idea is that you see that the data folder can be updated or checked out according to the pointer file pushed to git. In this case do not forget to store your full data folder under another folder of your choice (example: data_local) and to add that folder to the .gitignore
+- `pyproject.toml` — project metadata (name, Python version requirement, dependencies list, build system). Modern replacement for `requirements.txt` + `setup.py`.
+- `.python-version` — pins the exact Python version (3.14) for reproducibility.
+- `src/mlops_lab_1/` — the actual Python package folder.
+- `README.md` — empty placeholder for docs.
+- No `.gitignore` was created by `uv init` — had to add one manually.
+- No `uv.lock` yet — only appears after the first `uv add`.
 
-## The Data Use Case
+### Question 2: dvc init files
 
-Food-11 is a dataset of images labeled by 11 food categories:
+- `.dvc/config` — stores dvc remote settings (empty until a remote is configured).
+- `.dvc/.gitignore` — auto-created, excludes dvc's internal cache/tmp folders from git.
+- `.dvc/tmp/` — dvc's internal scratch space, git-ignored.
+- `.dvcignore` — dvc's own ignore file (like `.gitignore` but for dvc).
 
-0. "Bread"
-1. "Dairy product"
-2. "Dessert"
-3. "Egg"
-4. "Fried food"
-5. "Meat"
-6. "Noodles-Pasta"
-7. "Rice"
-8. "Seafood"
-9. "Soup"
-10. "Vegetable-Fruit"
+All of these except `.dvc/tmp/` should be (and were) pushed to git — they're small
+metadata files, not the actual data.
 
-The images are 512x512 pixels and are already split in 3 folders: *training*, *evaluation*, *validation*. The category is in the first part of the file name.
+### Question 3: dvc remote credentials
 
-You can download the full raw data from [https://www.kaggle.com/datasets/karakaggle/food11](https://www.kaggle.com/datasets/karakaggle/food11)
+- `--global`: stored in a machine-wide dvc config (outside any repo), applies to all
+  dvc projects on that machine.
+- `--local`: stored in `.dvc/config.local`, inside the repo but automatically excluded
+  from git via `.dvc/.gitignore`.
+- Default (no flag): stored in `.dvc/config`, which **is** committed to git — fine for
+  non-secret settings like a remote URL, but never for credentials.
+- Since I used a local folder remote, no credentials were needed at all — the "remote"
+  is just a filesystem path.
+- Credentials should **never** be pushed to GitHub. This is exactly why `--local`
+  exists: secrets should never enter git history, even briefly, since history is hard
+  to fully erase once pushed.
 
-## Project Setup
+### Question 4: .gitignore after `dvc add data`
 
-### GitHub Repo creation
+`dvc add data` automatically appended `/data` to `.gitignore`. This tells git to stop
+tracking the contents of the `data/` folder entirely — dvc now owns that folder. Git
+only tracks the small pointer file (`data.dvc`) going forward.
 
-- In your github account create a repo named: *mlops-lab-1*
-- Keep it empty
-- Clone the newly created repo on your laptop
+### Question 5: data.dvc contents
 
-### Install uv
+Yes, a `data.dvc` file was created:
 
-Your project will be using *uv* package manager. Make sure you have it.
+```yaml
+outs:
+- md5: a3a457d03c51ff8b037a833440f6ad13.dir
+  size: 1188442712
+  nfiles: 16643
+  hash: md5
+  path: data
+```
+
+It contains a directory hash (checksum of the whole `data/` folder's contents), the
+total size in bytes, the file count, and the tracked path. This tiny file is what git
+commits instead of the actual data — dvc uses it to reconstruct/verify the exact data
+state later.
+
+### Question 6: GitHub / DagsHub visibility
+
+On GitHub (`main` branch):
+- **Code**: present (`src/`, `pyproject.toml`, `uv.lock`, etc.)
+- **Data**: NOT present — no `data/` folder in the repo listing.
+- **Pointer file**: `data.dvc` is present, pointing to the data's location/hash.
+
+DagsHub: not applicable — I used a local remote (Option 1), so there is no DagsHub
+data storage involved. The actual data instead lives in `../dvc-local-storage`,
+completely outside git.
+
+### Question 7: Fresh clone test
+
+After cloning the repo into a new folder, `data/` did not exist — only code and
+`data.dvc` came from GitHub. Running `dvc pull` is needed to restore the data folder.
+
+One nuance from using a local relative-path remote: the relative path in
+`.dvc/config` (`../../dvc-local-storage`) only resolves correctly if the clone sits at
+the same folder depth as the original repo. In my test clone (nested one level
+deeper), `dvc pull` initially failed because the relative path pointed to a
+non-existent location. I fixed this by running:
 
 ```bash
-pip install uv 
-# or 
-pipx install uv
+dvc remote modify origin --local url "<absolute-path-to-dvc-local-storage>"
 ```
 
-### Init the uv project
-
-Initialize the project folder by typing the following.
-
-```bash
-uv init
-```
-
-> Question 1: Observe the files created, what do you think they contain.
-
-
-
----------------------------------------------------------------------------
-pyproject.toml, metadata
-.python-version, version
-src/mlops_lab_1/, actual package folder
-No uv.lock
-No .gitignore
----------------------------------------------------------------------------
-
-
-### Setup dvc
-
-In the root folder of your repo type the following.
-```bash
-dvc init # created the .dvc folder
-git add .dvc .dvcignore
-git commit -m "Initialize git and dvc"
-git push
-```
-
-> Question 2: What are the created files. What do you think they are used for? And which ones should be pushed to git?
-
-
-
----------------------------------------------------------------------------
-.dvc/config, currently empty (no remote configured yet); this is where dvc remote settings get stored. Should be pushed to git (no secrets in it yet, that changes when we add credentials — more on that in Question 3).
-.dvc/.gitignore, auto-created by dvc, tells git to ignore dvc's internal cache/tmp folders inside .dvc/
-.dvc/tmp/, dvc's working scratch space, not tracked by git (excluded via .dvc/.gitignore)
-.dvcignore, dvc's own ignore file (like .gitignore but for dvc), empty template for now
----------------------------------------------------------------------------
-
-
-
-
-### Add dagshub as the remote for dvc
-
-In dagshub web interface, open the drop down under the green 'data' button and check the 'Add dvc remote' and 'Setup credentials' sections. Type the following:
-
-```bash
-dvc remote add --global origin https://dagshub.com/<username>/<repo-name>.dvc
-
-dvc remote modify origin --global auth basic
-dvc remote modify origin --global user <username>
-dvc remote modify origin --global password <password>
-```
-
-> Question 3: Where are the credentials stored? and what are the options other than --global? Should the credentials be pushed to github? 
------------------------------------------------------------------------------------------
-
-
---global: in a global dvc config file outside any repo (typically ~/.config/dvc/config on Linux/Mac, or an equivalent AppData location on Windows) — applies to all your dvc projects on that machine.
---local: in .dvc/config.local inside the repo, but dvc automatically excludes this file via .dvc/.gitignore so it never gets committed.
-In our case (local folder remote), no credentials are needed at all, the "remote" is just a filesystem path.
-
-
-Options other than --global:
-
-(default, no flag), writes to .dvc/config, which is committed to git (fine for non-secret settings like the remote URL)
---local — writes to .dvc/config.local, git-ignored automatically (correct place for secrets)
---global — machine-wide config, outside any repo
-
-
-
-Should credentials be pushed to GitHub? Never, that's exactly why --local exists and why .dvc/config.local is auto-gitignored. Secrets should never enter git history, even briefly, because history is hard to truly erase once pushed.
-
-
-
--------------------------------------------------------------------------------------------------
-
-
-
-
-Set as default remote and commit the non-secret config
-
-```bash
-dvc remote default origin 
-
-git add .dvc/config
-git commit -m "Configure DagsHub as dvc remote"
-git push
-```
-
-### Adding the data
-
-Add your food11 folder under a data folder. You will end up having these folders:
-```
-./data/food11_raw/training
-./data/food11_raw/evaluation
-./data/food11_raw/validation 
-```
-
-It is highly recommended to stick to the exact naming.
-
-Add you data folder for tracking
-
-```bash
-dvc add data
-```
-
-> Question 4: Take a look at the .gitignore file. Explain what happened.
-
-> Question 5: Do you see a .dvc file? What does it contain? 
-
-Git commit/push .gitignore and the pointer data.dvc
-
-```bash
-git add data.dvc .gitignore
-git commit -m "Track data folder with dvc"
-git push # code + .dvc pointer files → GitHub
-dvc push # actual data → DagsHub
-```
-
-> Question 6: You can check your main branch on the github web UI. Is the code there? Is the data there? Do you have any file that points to the data location. And what about dagshub web UI do you see the data? 
-
-> Question 7: In a completely new temporary folder clone your github repo. Do you see the data folder? What dvc command is needed to get the data folder?
-
-### Python script to prepare the image files
-
-Check how ResNet expects the images dataset to be organised. 
-
-Create a file ./src/food11/data.py 
-This python script needs to copy food11_raw structure in 2 new folders under ./data:
-- ./data/food11_processed 
-- ./data/food11_processed_mini 
-
-These datasets have the following different from food11_raw:
-1. the images are already shrunk to 128x128
-2. the images are arranged in folders that reflect their categories example: data/food11_processed/training/Bread/*
-         data/food11_processed/training/Dairy product/*
-         data/food11_processed/training/Dessert/*
-         data/food11_processed/training/Egg/*
-         ...
-3. the food11_processed_mini is just the same as food11_processed except with only 100 or less images under each category. This dataset is used for the development so we make sure that our algorithms are correct.
-
-This is how you would run your code in uv. 
-
-```bash
-uv run python ./src/food11/data.py 
-```
-
-If for example you need to add pillow library:
-
-```bash
-uv add pillow
-```
-
-Once the script has run, your data folder contains the new processed datasets alongside the raw one. Track the changes with dvc and commit/push the updated pointer, the same way you did for the raw data:
-
-```bash
-dvc add data
-git add data.dvc
-git commit -m "Add food11_processed and food11_processed_mini"
-git push
-dvc push
-```
-
-### Switching to previous commits both code and data
-
-List the previous commits that contain data.dvc modifications. Then checkout the commit on both git and and dvc.
-
-```bash
-git log --oneline -- data.dvc # This shows only commits that touched data.dvc
-git checkout <old-commit-hash> 
-dvc checkout
-```
-
-> Question 8: Do you still see the new folders you created? food11_processed and food11_processed_mini?
-
-Then checkout *main* again.
-
-```bash
-git checkout main
-dvc checkout
-```
+After that, `dvc pull` succeeded and fetched all 16,643 files. With a real remote
+like DagsHub (an absolute URL), this issue wouldn't occur — it's a trade-off specific
+to the local-remote workaround.
+
+### Question 8: Checking out an old commit
+
+At the commit before `food11_processed`/`food11_processed_mini` were added
+(`git log --oneline -- data.dvc` showed two commits touching that file), checking out
+the older commit + running `dvc checkout` left only `food11_raw` — the newer
+processed folders were gone, confirming the data changes with the commit.
+
+Note: `dvc checkout` did not automatically delete the newer folders in my case (they
+had to be removed manually) — likely because they existed as untracked extra
+directories carried over from the newer commit's already-materialized workspace. On a
+fresh clone this wouldn't happen, since those folders would never have existed
+locally to begin with.
+
+After switching back to `main` and running `dvc checkout` again, both
+`food11_processed` and `food11_processed_mini` were correctly restored.
