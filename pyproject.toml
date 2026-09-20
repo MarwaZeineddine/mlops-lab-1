@@ -7,7 +7,9 @@ authors = [
     { name = "MarwaZeineddine", email = "marwa.zeineddine@jbl-solutions.com" }
 ]
 requires-python = ">=3.14"
-dependencies = []
+dependencies = [
+    "kagglehub>=1.0.2",
+]
 
 [project.scripts]
 mlops-lab-1 = "mlops_lab_1:main"
