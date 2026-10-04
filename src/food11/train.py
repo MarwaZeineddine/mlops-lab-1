@@ -93,8 +93,10 @@ def main():
 
         _, test_acc = evaluate(model, test_loader, criterion, device)
         mlflow.log_metric("test_accuracy", test_acc)
-        mlflow.pytorch.log_model(model, "model")
-        print(f"test_accuracy={test_acc:.4f}")
+        model.eval()
+        model.cpu()
+        example = torch.randn(1, 3, 128, 128).numpy()
+        mlflow.pytorch.log_model(model, "model", input_example=example)        print(f"test_accuracy={test_acc:.4f}")
 
 
 if __name__ == "__main__":
