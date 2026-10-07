@@ -1,13 +1,3 @@
-# Lab 1 - git/dvc and data preparation
-
-## Remote Solution Adopted
-
-I adopted **Option 1: Local remote**. The dvc remote is set to a local folder
-(`../dvc-local-storage`) outside the git repository, rather than pushing to DagsHub.
-This avoided upload speed/size issues while still demonstrating the full git+dvc
-workflow (add, commit, push, pull, checkout).
-
----
 
 ### Question 1: uv init files
 
